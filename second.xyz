@@ -1,0 +1,97 @@
+
+resource "azurerm_virtual_network" "anothervnet" {
+  name                = "sea-network"
+  address_space       = ["10.3.0.0/16"]
+  location            = "Southeast Asia"
+  resource_group_name = azurerm_resource_group.example.name
+}
+
+resource "azurerm_subnet" "anothersubnet" {
+  name                 = "example-subnet"
+  resource_group_name  = azurerm_resource_group.example.name
+  virtual_network_name = azurerm_virtual_network.anothervnet.name
+  address_prefixes     = ["10.3.1.0/24"]
+
+#   delegation {
+#     name = "delegation"
+
+#     service_delegation {
+#       name    = "Microsoft.ContainerInstance/containerGroups"
+#       actions = ["Microsoft.Network/virtualNetworks/subnets/join/action", "Microsoft.Network/virtualNetworks/subnets/prepareNetworkPolicies/action"]
+#     }
+#   }
+}
+
+resource "azurerm_network_interface" "anothernic" {
+  name                = "${var.prefix}-another-nic"
+  location            = "Southeast Asia"
+  resource_group_name = azurerm_resource_group.example.name
+
+  ip_configuration {
+    name                          = "testconfiguration1"
+    subnet_id                     = azurerm_subnet.anothersubnet.id
+    private_ip_address_allocation = "Dynamic"
+    public_ip_address_id =  azurerm_public_ip.example1.id   
+  }
+  depends_on = [ azurerm_public_ip.example1 ]
+}
+
+resource "azurerm_public_ip" "example1" {
+  name                = "myPublicIP1"
+  location            = "Southeast Asia"
+  resource_group_name = azurerm_resource_group.example.name
+  allocation_method   = "Static"  # You can choose "Dynamic" if needed
+  sku                  = "Basic"  # Use "Standard" for higher availability
+}
+
+resource "azurerm_network_security_group" "example2" {
+  name                = "example-nsg2"
+  location            = "Southeast Asia"
+  resource_group_name = azurerm_resource_group.example.name
+}
+
+resource "azurerm_network_security_rule" "allow_ssh2" {
+  resource_group_name = azurerm_resource_group.example.name
+  name                        = "allow-ssh2"
+  priority                    = 100
+  direction                   = "Inbound"
+  access                      = "Allow"
+  protocol                    = "Tcp"
+  source_port_range           = "*"
+  destination_port_range      = "22"
+  source_address_prefix       = "*"
+  destination_address_prefix  = "*"
+  network_security_group_name = azurerm_network_security_group.example2.name
+}
+
+resource "azurerm_linux_virtual_machine" "anothervm" {
+  name                = "another-vm"
+  location            = "Southeast Asia"
+  resource_group_name = azurerm_resource_group.example.name
+  size                = "Standard_B2s"
+  admin_username      = "azureuser"
+  network_interface_ids = [
+    azurerm_network_interface.anothernic.id
+  ]
+
+  admin_ssh_key {
+    username   = "azureuser"
+    public_key = file("~/.ssh/id_rsa.pub")
+  }
+
+  os_disk {
+    caching              = "ReadWrite"
+    storage_account_type = "Standard_LRS"
+  }
+
+  source_image_reference {
+    publisher = "Canonical"
+    offer     = "UbuntuServer"
+    sku       = "18.04-LTS"
+    version   = "latest"
+  }
+  timeouts {
+      create = "30m"
+  }
+  depends_on = [ azurerm_network_interface.anothernic ]
+}
